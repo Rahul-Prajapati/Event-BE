@@ -6,8 +6,36 @@ const bookModel = require("../models/view.event.model");
 const { authMiddleware } = require("../middleware/auth");
 const mongoose = require("mongoose");
 
+router.put("/update-status", authMiddleware,  async (req, res) => {
+  try {
+    const { eventId, isActive } = req.body; // Extract from body
 
-router.post("/createEvent", async (req, res) => {
+    console.log(eventId, isActive);
+
+      if (!eventId) return res.status(400).json({ message: "Event ID is required" });
+      
+      const newStatus = isActive === "true" ? false : true; // toggle logic
+
+      const updatedEvent = await eventModel.findByIdAndUpdate(
+          eventId,
+          { isActive: newStatus  },
+          { new: true }
+      );
+
+      if (!updatedEvent) return res.status(404).json({ message: "Event not found" });
+
+      res.status(200).json({ message:"Meeting Active/InActive Status is changed", isActive: updatedEvent.isActive });
+
+  } catch (err) {
+
+    console.log("catch block")
+    console.error("Error in catch block:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+  }
+});
+// 
+
+router.post("/createEvent",authMiddleware, async (req, res, next) => {
   try {
     console.log(req.body);
     let { hostname, date, duration, participants, ...rest } = req.body;
@@ -56,15 +84,13 @@ router.post("/createEvent", async (req, res) => {
   } catch (error) {
 
     next(err);
-    //   console.error("Error creating event:", error);
-    //   res.status(500).json({ message: "Internal Server Error", error });
   }
 });
 
 
 
-
-router.get("/user/:userId", async (req, res) => {
+// Get Event Data where User is host
+router.get("/host/:userId",  async (req, res) => {
   try {
 
     const id = req.params.userId;
@@ -86,7 +112,6 @@ router.get("/user/:userId", async (req, res) => {
     // console.log(EventsDetails);
     res.status(200).json(EventsDetails);
 
-
   }
   catch (error) {
     // next(err);
@@ -99,7 +124,7 @@ router.get("/user/:userId", async (req, res) => {
 
 
 // to update Events Details
-router.put("/:eventId", async (req, res) => {
+router.put("/:eventId",authMiddleware,  async (req, res) => {
 
   try {
     const eventId = req.params.eventId;
@@ -148,7 +173,6 @@ router.put("/:eventId", async (req, res) => {
 
     res.status(200).json({ message: "Event updated successfully", event: updatedEvent });
 
-
   }
   catch (error) {
 
@@ -163,7 +187,7 @@ router.put("/:eventId", async (req, res) => {
 
 // Delete Events 
 
-router.delete("/deleteEvent/:eventId", async (req, res, next) => {
+router.delete("/deleteEvent/:eventId", authMiddleware,  async (req, res, next) => {
   try {
     const { eventId } = req.params;
 
@@ -193,50 +217,45 @@ router.delete("/deleteEvent/:eventId", async (req, res, next) => {
 });
 
 
-router.put("/update-status", async (req, res, next) => {
+// Get All events data where user is either host or participant 
+router.get("/allevents/:userId",  async (req, res) => {
   try {
-    console.log(req.query);
-      // router.put("/toggleEventStatus/:eventId", async (req, res, next) => {
-    // const { eventId, isActive } = req.query;
-    // const  eventId  = req.params.eventId; 
-    // const  isActive  = req.params.isActive;
-    const  eventId  = req.query.eventId; 
-    const  isActive  = req.query.isActive;
+    const { userId } = req.params;
 
-    console.log(eventId, isActive);
+    if (!userId) {
+        return res.status(400).json({ error: "User ID is required" });
+    }
 
-      if (!eventId) return res.status(400).json({ message: "Event ID is required" });
+    // Fetch all events where the user is either a host or a participant
+    const events = await eventModel.find({
+        $or: [{ hostname: userId }, { participants: userId }]
+    })
+    .populate("hostname", "firstname lastname") // Populate host details
+    .populate("participants", "firstname lastname") // Populate participants details
+    .lean(); // Convert Mongoose objects to plain JSON
 
-      // const { eventId, isActive } = req.query;
+    // Fetch all booking statuses for this user
+    const bookings = await bookModel.find({ userId }).lean();
 
-        // if (!mongoose.Types.ObjectId.isValid(eventId)) {
-        //     return res.status(400).json({ message: "Invalid event ID" });
-        // }
+    // Map booking statuses to event IDs
+    const bookingMap = {};
+    bookings.forEach(booking => {
+        bookingMap[booking.eventId.toString()] = booking.status;
+    });
 
-      
-      const newStatus = isActive === "true"; 
+    // Attach user-specific status to each event
+    const enrichedEvents = events.map(event => ({
+        ...event,
+        userStatus: bookingMap[event._id.toString()] || "Pending"
+    }));
 
-      const updatedEvent = await eventModel.findByIdAndUpdate(
-          eventId,
-          { isActive: newStatus  },
-          { new: true }
-      );
+    res.json(enrichedEvents);
+} catch (error) {
+    console.error("Error fetching events:", error);
+    res.status(500).json({ error: "Server error" });
+}
 
-      if (!updatedEvent) return res.status(404).json({ message: "Event not found" });
-
-      res.status(200).json({ message:"Meeting Active/InActive Status is changed", isActive: updatedEvent.isActive });
-  } catch (err) {
-
-    console.log("catch block")
-    console.error("Error in catch block:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
-      // next(err);
-  }
 });
-
-
-
-
 
 
 

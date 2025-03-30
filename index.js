@@ -6,6 +6,7 @@ const errorHandler = require("./middleware/errorHandler");
 const { authRoutes } = require("./routes/auth");
 const { userRoutes } = require("./routes/user");
 const { eventRoutes } = require("./routes/event");
+const { bookRoutes } = require("./routes/book");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,6 +18,7 @@ app.use(errorHandler)
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/event', eventRoutes);
+app.use('/api/book', bookRoutes);
 
 mongoose.connect(process.env.MONGODB_URI)
 .then(() => {

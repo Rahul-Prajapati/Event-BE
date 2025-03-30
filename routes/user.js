@@ -39,15 +39,33 @@ router.put("/profile_update/:userId", authMiddleware, async (req, res, next) => 
       const user = await userModel.findById(userId);
         if (!user) return res.status(404).json({ message: "User not found" });
   
-      const hashedPassword = bcrypt.hashSync(password, 10);
-  
-      req.body.password = hashedPassword;
-  
-      const updatedUser = await userModel.findByIdAndUpdate(req.params.userId, req.body, { new: true });
-  
-      if (!updatedUser) return res.status(404).json({ message: "User not found" });
-  
-      res.json(updatedUser);
+        let updatedFields = { firstname, lastname };
+
+        // Check if email is being updated
+        if (email && email !== user.email) {
+            updatedFields.email = email;
+            console.log("email updated")
+        }
+
+        // Check if password is being updated
+        if (password) {
+            const hashedPassword = bcrypt.hashSync(password, 10);
+            updatedFields.password = hashedPassword;
+        }
+
+        const updatedUser = await userModel.findByIdAndUpdate(userId, updatedFields, { new: true });
+
+        if (!updatedUser) return res.status(404).json({ message: "User not found" });
+
+        // If email or password is updated, force logout
+        if ((email && email !== user.email) || (password && password.trim() !== "")) {
+          return res.status(200).json({ 
+              message: "Profile updated successfully. Please log in again with your new credentials.", 
+              logout: true 
+          });
+      }
+
+        res.json(updatedUser);
     } catch (error) {
       console.error("Error updating user:", error);
       res.status(500).json({ message: "Internal Server Error" });
