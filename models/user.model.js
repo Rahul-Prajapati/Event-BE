@@ -38,21 +38,15 @@ const userSchema = new mongoose.Schema({
     availability: 
     [
         {
-            day: 
-            { 
-                type: String,
-                required: true 
-            },
-            startTime: 
-            { 
-                type: String, 
-                required: true 
-            },
-            endTime: 
-            { 
-                type: String, 
-                required: true 
-            }
+            day: { type: String, 
+                   required: true 
+                },
+            slots: [
+                {
+                    startTime: { type: String, required: true },
+                    endTime: { type: String, required: true }
+                }
+            ]
         }
     ]
 });
