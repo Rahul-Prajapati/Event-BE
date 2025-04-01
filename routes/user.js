@@ -71,6 +71,23 @@ router.put("/profile_update/:userId", authMiddleware, async (req, res, next) => 
       res.status(500).json({ message: "Internal Server Error" });
     }
   });
+
+
+  router.post("/updateAvailability", async (req, res) => {
+    const { userId, availability } = req.body;
+  
+    try {
+      const user = await userModel.findByIdAndUpdate(
+        userId,
+        { availability },
+        { new: true }
+      );
+  
+      res.status(200).json({ message: "Availability updated successfully", user });
+    } catch (error) {
+      res.status(500).json({ message: "Error updating availability", error });
+    }
+  });
   
 
 

@@ -14,13 +14,16 @@ router.put("/update-status", authMiddleware,  async (req, res) => {
 
       if (!eventId) return res.status(400).json({ message: "Event ID is required" });
       
-      const newStatus = isActive === "true" ? false : true; // toggle logic
+      const newStatus = !JSON.parse(isActive);
+
+      console.log("Before Update - isActive:", isActive, "newStatus:", newStatus);
 
       const updatedEvent = await eventModel.findByIdAndUpdate(
           eventId,
           { isActive: newStatus  },
           { new: true }
       );
+      console.log("Check Status",updatedEvent);
 
       if (!updatedEvent) return res.status(404).json({ message: "Event not found" });
 
@@ -35,27 +38,140 @@ router.put("/update-status", authMiddleware,  async (req, res) => {
 });
 // 
 
-router.post("/createEvent",authMiddleware, async (req, res, next) => {
+// create Event Old
+// router.post("/createEvent",authMiddleware, async (req, res, next) => {
+//   try {
+//     console.log(req.body);
+//     let { hostname, date, duration, participants, ...rest } = req.body;
+
+//     // Validate Host
+//     const hostUser = await userModel.findById(hostname);
+//     if (!hostUser) {
+//       return res.status(404).json({ message: "Host user not found" });
+//     }
+
+//     // Convert date from "YYYY-MM-DD" to "DD/MM/YY"
+//     //   const formattedDate = date.split("-").reverse().join("/");
+
+//     // Ensure duration is stored as a number
+//     const parsedDuration = parseInt(duration);
+
+//     // Fetch users based on email instead of ObjectId
+//     const validParticipants = await userModel.find({ email: { $in: participants } }).select("_id");
+
+//     // Extract ObjectIds
+//     const participantIds = validParticipants.map(user => user._id);
+
+//     console.log("Valid Participants:", participantIds);
+
+//     // Create Event Object
+//     const newEvent = new eventModel({
+//       hostname,
+//       date: date,
+//       duration: parsedDuration,
+//       participants: participantIds,
+//       ...rest, // Spread remaining fields
+//     });
+
+//     await newEvent.save();
+
+//     //  Insert Booking Status for each participant
+//     const bookingStatusEntries = participantIds.map(userId => ({
+//       eventId: newEvent._id,
+//       userId,
+//       status: "Pending", // Default status
+//     }));
+
+//     await bookModel.insertMany(bookingStatusEntries); // Bulk insert into BookingStatus
+//     console.log("Booking Status Added:", bookingStatusEntries);
+//     res.status(201).json({ message: "Event created successfully", event: newEvent });
+//   } catch (error) {
+//     console.error("Error fetching events:", error);
+//     res.status(500).json({ message: "Server Error" });
+//     // next(err);
+//   }
+// });
+
+// 
+
+// New Create Event
+router.post("/createEvent", authMiddleware, async (req, res, next) => {
   try {
     console.log(req.body);
-    let { hostname, date, duration, participants, ...rest } = req.body;
+    let { hostname, date, time, ampm, duration, participants, ...rest } = req.body;
 
+    // Convert date to readable format (Extract the day)
+    const eventDate = new Date(date);
+    const dayName = eventDate.toLocaleString("en-US", { weekday: "short" });
+    console.log("DAy",dayName);
+    // Ensure the event is not on Sunday
+    if (dayName === "Sun") {
+      console.log("Sunday");
+      return res.status(400).json({ message: "Events cannot be scheduled on Sundays." });
+    }
+    console.log("PassedSunday");
     // Validate Host
     const hostUser = await userModel.findById(hostname);
     if (!hostUser) {
       return res.status(404).json({ message: "Host user not found" });
     }
+    console.log("Host Validated");
 
-    // Convert date from "YYYY-MM-DD" to "DD/MM/YY"
-    //   const formattedDate = date.split("-").reverse().join("/");
 
-    // Ensure duration is stored as a number
-    const parsedDuration = parseInt(duration);
+    // Check if the user has availability on this day
+    const userAvailability = hostUser.availability.find(avail => avail.day === dayName);
+    if (!userAvailability) {
+      console.log("Avail inside failed");
+      return res.status(400).json({ message: `You have no availability on ${dayName}.` });
+    }
 
-    // Fetch users based on email instead of ObjectId
+    console.log("Avail passed");
+
+    // Convert input event time to 24-hour format for easier comparison
+    const eventStart = convertTo24HourFormat(time, ampm);
+    const durationInHours = parseInt(duration);
+    const eventEnd = eventStart + durationInHours * 60; // Add duration (converted to minutes)
+
+    console.log(eventStart," ---", eventEnd);
+    // Check if the event fits within any available slots
+    const isAvailable = userAvailability.slots.some(slot => {
+      console.log(slot.startTime," ==== ",slot.endTime);
+      const [time, period] = slot.startTime.split(" ");
+      // const slotStart = convertTo24HourFormat(slot.startTime);
+      const slotStart = convertTo24HourFormat(time, period);
+      const [time2, period2] = slot.endTime.split(" ");
+      const slotEnd = convertTo24HourFormat(time2, period2);
+      console.log(slotStart," ==== ",slotEnd);
+      return eventStart >= slotStart && eventEnd <= slotEnd;
+    });
+
+    if (!isAvailable) {
+      console.log("Not available slots")
+      return res.status(400).json({ message: `Event time is outside your available slots.` });
+    }
+
+    console.log("is available");
+    // Ensure event does not overlap with another scheduled event
+    const overlappingEvent = await eventModel.findOne({
+      hostname,
+      date,
+      $or: [
+        { time: { $gte: time, $lte: eventEnd } },
+        { time: { $lte: time, $gte: eventStart } }
+      ]
+    });
+
+
+
+    if (overlappingEvent) {
+      console.log("is overlappingEvent");
+      return res.status(400).json({ message: "Event time overlaps with an existing event." });
+    }
+
+    console.log("NO overlappingEvent");
+
+    // Process participants
     const validParticipants = await userModel.find({ email: { $in: participants } }).select("_id");
-
-    // Extract ObjectIds
     const participantIds = validParticipants.map(user => user._id);
 
     console.log("Valid Participants:", participantIds);
@@ -63,29 +179,41 @@ router.post("/createEvent",authMiddleware, async (req, res, next) => {
     // Create Event Object
     const newEvent = new eventModel({
       hostname,
-      date: date,
-      duration: parsedDuration,
+      date,
+      time,
+      ampm,
+      duration:durationInHours,
       participants: participantIds,
-      ...rest, // Spread remaining fields
+      ...rest,
     });
 
     await newEvent.save();
 
-    //  Insert Booking Status for each participant
+    // Insert Booking Status for each participant
     const bookingStatusEntries = participantIds.map(userId => ({
       eventId: newEvent._id,
       userId,
-      status: "Pending", // Default status
+      status: "Pending",
     }));
 
-    await bookModel.insertMany(bookingStatusEntries); // Bulk insert into BookingStatus
+    await bookModel.insertMany(bookingStatusEntries);
     console.log("Booking Status Added:", bookingStatusEntries);
+
     res.status(201).json({ message: "Event created successfully", event: newEvent });
   } catch (error) {
-
-    next(err);
+    console.error("Error creating event:", error);
+    res.status(500).json({ message: "Server Error" });
   }
 });
+
+// Helper function to convert AM/PM time to 24-hour format
+function convertTo24HourFormat(time, ampm) {
+  let [hours, minutes] = time.split(":").map(Number);
+  if (ampm === "PM" && hours !== 12) hours += 12;
+  if (ampm === "AM" && hours === 12) hours = 0;
+  return hours * 60 + minutes; // Convert to minutes for easy comparison
+}
+
 
 
 
@@ -108,9 +236,23 @@ router.get("/host/:userId",  async (req, res) => {
 
 
     if (!EventsDetails.length) return res.status(404).json({ message: "No Upcoming Events" })
+    
+    // update
+    const acceptedBookings = await bookModel.find({userId: id, status: "Accepted" }).populate('eventId');
+    console.log("acceptedBookings",acceptedBookings);
+    // Extract event details from accepted bookings
+    const acceptedEventDetails = acceptedBookings.map(booking => booking.eventId);
 
+    console.log("acceptedEventDetails", acceptedEventDetails);
+    // update end
     // console.log(EventsDetails);
-    res.status(200).json(EventsDetails);
+
+    // res.status(200).json(EventsDetails);
+
+    res.json({
+      EventsDetails,
+      acceptedEventDetails
+  });
 
   }
   catch (error) {
@@ -244,10 +386,15 @@ router.get("/allevents/:userId",  async (req, res) => {
     });
 
     // Attach user-specific status to each event
+    // const enrichedEvents = events.map(event => ({
+    //     ...event,
+    //     userStatus: bookingMap[event._id.toString()] || "Pending"
+    // }));
+
     const enrichedEvents = events.map(event => ({
-        ...event,
-        userStatus: bookingMap[event._id.toString()] || "Pending"
-    }));
+      ...event,
+      userStatus: event.hostname._id.toString() === userId ? "Accepted" : (bookingMap[event._id.toString()] || "Pending")
+  }));
 
     res.json(enrichedEvents);
 } catch (error) {
