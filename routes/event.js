@@ -38,60 +38,6 @@ router.put("/update-status", authMiddleware,  async (req, res) => {
 });
 // 
 
-// create Event Old
-// router.post("/createEvent",authMiddleware, async (req, res, next) => {
-//   try {
-//     console.log(req.body);
-//     let { hostname, date, duration, participants, ...rest } = req.body;
-
-//     // Validate Host
-//     const hostUser = await userModel.findById(hostname);
-//     if (!hostUser) {
-//       return res.status(404).json({ message: "Host user not found" });
-//     }
-
-//     // Convert date from "YYYY-MM-DD" to "DD/MM/YY"
-//     //   const formattedDate = date.split("-").reverse().join("/");
-
-//     // Ensure duration is stored as a number
-//     const parsedDuration = parseInt(duration);
-
-//     // Fetch users based on email instead of ObjectId
-//     const validParticipants = await userModel.find({ email: { $in: participants } }).select("_id");
-
-//     // Extract ObjectIds
-//     const participantIds = validParticipants.map(user => user._id);
-
-//     console.log("Valid Participants:", participantIds);
-
-//     // Create Event Object
-//     const newEvent = new eventModel({
-//       hostname,
-//       date: date,
-//       duration: parsedDuration,
-//       participants: participantIds,
-//       ...rest, // Spread remaining fields
-//     });
-
-//     await newEvent.save();
-
-//     //  Insert Booking Status for each participant
-//     const bookingStatusEntries = participantIds.map(userId => ({
-//       eventId: newEvent._id,
-//       userId,
-//       status: "Pending", // Default status
-//     }));
-
-//     await bookModel.insertMany(bookingStatusEntries); // Bulk insert into BookingStatus
-//     console.log("Booking Status Added:", bookingStatusEntries);
-//     res.status(201).json({ message: "Event created successfully", event: newEvent });
-//   } catch (error) {
-//     console.error("Error fetching events:", error);
-//     res.status(500).json({ message: "Server Error" });
-//     // next(err);
-//   }
-// });
-
 // 
 
 // New Create Event
@@ -125,7 +71,7 @@ router.post("/createEvent", authMiddleware, async (req, res, next) => {
       return res.status(400).json({ message: `You have no availability on ${dayName}.` });
     }
 
-    console.log("Avail passed");
+    console.log("Avail passed", time," time", ampm);
 
     // Convert input event time to 24-hour format for easier comparison
     const eventStart = convertTo24HourFormat(time, ampm);
@@ -161,8 +107,6 @@ router.post("/createEvent", authMiddleware, async (req, res, next) => {
       ]
     });
 
-
-
     if (overlappingEvent) {
       console.log("is overlappingEvent");
       return res.status(400).json({ message: "Event time overlaps with an existing event." });
@@ -172,6 +116,11 @@ router.post("/createEvent", authMiddleware, async (req, res, next) => {
 
     // Process participants
     const validParticipants = await userModel.find({ email: { $in: participants } }).select("_id");
+
+    if (validParticipants.length !== participants.length) {
+      return res.status(400).json({ message: "One or more participants are invalid or do not exist." });
+  }
+
     const participantIds = validParticipants.map(user => user._id);
 
     console.log("Valid Participants:", participantIds);
@@ -223,13 +172,16 @@ router.get("/host/:userId",  async (req, res) => {
 
     const id = req.params.userId;
 
+    const today = new Date().toISOString().split("T")[0]; 
+
     const user = await userModel.findById(id);
 
     if (!user) return res.status(404).json({ message: "User Not Found" });
 
     const EventsDetails = await eventModel.find({
       hostname: id,
-      status: "Upcoming"
+      status: "Upcoming",
+      date: { $gte: today }
     })
       .populate("hostname", "username") // Fetch only these fields from hostname
       .populate("participants", "firstname lastname email"); // Fetch only these fields from participants
@@ -244,10 +196,6 @@ router.get("/host/:userId",  async (req, res) => {
     const acceptedEventDetails = acceptedBookings.map(booking => booking.eventId);
 
     console.log("acceptedEventDetails", acceptedEventDetails);
-    // update end
-    // console.log(EventsDetails);
-
-    // res.status(200).json(EventsDetails);
 
     res.json({
       EventsDetails,
@@ -385,16 +333,15 @@ router.get("/allevents/:userId",  async (req, res) => {
         bookingMap[booking.eventId.toString()] = booking.status;
     });
 
-    // Attach user-specific status to each event
-    // const enrichedEvents = events.map(event => ({
-    //     ...event,
-    //     userStatus: bookingMap[event._id.toString()] || "Pending"
-    // }));
+  const enrichedEvents = events.map(event => ({
+    ...event,
+    participants: event.participants.map(participant => ({
+        ...participant, // Keep participant details
+        status: bookingMap[event._id.toString()] || "Pending" // Get status from bookingMap
+    })),
+    userStatus: event.hostname._id.toString() === userId ? "Accepted" : (bookingMap[event._id.toString()] || "Pending")
+}));
 
-    const enrichedEvents = events.map(event => ({
-      ...event,
-      userStatus: event.hostname._id.toString() === userId ? "Accepted" : (bookingMap[event._id.toString()] || "Pending")
-  }));
 
     res.json(enrichedEvents);
 } catch (error) {

@@ -36,4 +36,32 @@ router.put("/update-status", async (req, res) => {
     }
 });
 
+router.get("/participants/:eventId", async (req, res) => {
+    const { eventId } = req.params;
+
+    try {
+        // Find all participants for the event and populate user details
+        const participants = await bookModel.find({ eventId })
+            .populate("userId", "firstname lastname") // Get only required fields
+            .lean(); // Convert to plain JSON
+
+        if (!participants.length) {
+            return res.status(404).json({ message: "No participants found for this event." });
+        }
+
+        // Format response
+        const participantData = participants.map(p => ({
+            firstname: p.userId.firstname,
+            lastname: p.userId.lastname,
+            status: p.status
+        }));
+
+        res.status(200).json({ participants: participantData });
+    } catch (error) {
+        console.error("Error fetching participants:", error);
+        res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+
 module.exports = { bookRoutes: router };

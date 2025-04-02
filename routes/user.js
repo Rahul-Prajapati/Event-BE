@@ -72,8 +72,8 @@ router.put("/profile_update/:userId", authMiddleware, async (req, res, next) => 
     }
   });
 
-
-  router.post("/updateAvailability", async (req, res) => {
+// POST User Availability
+router.post("/updateAvailability", async (req, res) => {
     const { userId, availability } = req.body;
   
     try {
@@ -88,6 +88,26 @@ router.put("/profile_update/:userId", authMiddleware, async (req, res, next) => 
       res.status(500).json({ message: "Error updating availability", error });
     }
   });
+
+
+  
+// GET User Availability
+router.get("/getAvailability", async (req, res) => {
+  const { userId } = req.query;
+
+  console.log(req.query,"===",userId);
+
+  try {
+      const user = await userModel.findById(userId, "availability");
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      res.json({ availability: user.availability });
+  } catch (error) {
+      console.error("Error fetching availability:", error);
+      res.status(500).json({ message: "Server error" });
+  }
+});
+
   
 
 
